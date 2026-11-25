@@ -1,0 +1,9 @@
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+        - bin
+        - migrations
+        - public
+    tmpDir: .phpunit.cache/phpstan

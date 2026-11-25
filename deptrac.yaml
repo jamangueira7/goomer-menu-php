@@ -1,0 +1,52 @@
+# Regra de dependência: Domain não importa nada de fora (nem de Application, Infrastructure, Http ou
+# bibliotecas); Application só conhece Domain; Infrastructure e Http ficam na borda.
+deptrac:
+  paths:
+    - ./src
+  exclude_files:
+    - '#.*Test\.php$#'
+  layers:
+    - name: Domain
+      collectors:
+        - type: directory
+          value: src/[A-Za-z]+/Domain/.*
+    - name: Application
+      collectors:
+        - type: directory
+          value: src/[A-Za-z]+/Application/.*
+    - name: Infrastructure
+      collectors:
+        - type: directory
+          value: src/[A-Za-z]+/Infrastructure/.*
+    - name: Http
+      collectors:
+        - type: directory
+          value: src/[A-Za-z]+/Http/.*
+    - name: Bootstrap
+      collectors:
+        - type: directory
+          value: src/Bootstrap/.*
+    - name: Vendor
+      collectors:
+        - type: classNameRegex
+          value: '#^(Slim|Psr|Firebase|Symfony|Doctrine|DI|OpenApi|FastRoute)\\#'
+        - type: classNameRegex
+          value: '#^PDO#'
+  ruleset:
+    Domain: ~
+    Application:
+      - Domain
+    Infrastructure:
+      - Domain
+      - Application
+      - Vendor
+    Http:
+      - Domain
+      - Application
+      - Vendor
+    Bootstrap:
+      - Domain
+      - Application
+      - Infrastructure
+      - Http
+      - Vendor
