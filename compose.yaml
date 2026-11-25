@@ -1,0 +1,85 @@
+name: goomer-menu-php
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-dev}
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: ${DB_NAME:-goomer}
+  DB_USER: ${DB_USER:-goomer}
+  DB_PASSWORD: ${DB_PASSWORD:-goomer}
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-troque-em-producao-32+}
+  APP_RESET_URL: ${APP_RESET_URL:-http://localhost:8090/reset-password}
+  MAILER_DSN: ${MAILER_DSN:-smtp://mailpit:1025}
+  MAIL_FROM: ${MAIL_FROM:-Goomer Menu <no-reply@goomer.local>}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-goomer}
+      POSTGRES_USER: ${DB_USER:-goomer}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-goomer}
+    # Sem porta publicada no host (a 5432 já está ocupada); acesse com `docker compose exec db psql`.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      target: prod
+    image: goomer-menu-php:prod
+    environment: *app-env
+    command: ["sh", "-c", "vendor/bin/doctrine-migrations migrate --no-interaction --allow-no-migration && php bin/seed.php"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: prod
+    image: goomer-menu-php:prod
+    environment: *app-env
+    ports:
+      - "8090:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8026:8025"
+
+  # Ferramentas e testes (perfil "test"): `docker compose run --rm test vendor/bin/phpunit`.
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: build
+    image: goomer-menu-php:build
+    user: "1000:1000"
+    environment:
+      <<: *app-env
+      DB_NAME: goomer_test
+      JWT_SECRET: test-secret-com-pelo-menos-32-caracteres
+      MAILPIT_URL: http://mailpit:8025
+      APP_RESET_URL: http://localhost:8090/reset-password
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+volumes:
+  pgdata:
