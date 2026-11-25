@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, intl
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - name: Pint
+        run: vendor/bin/pint --test
+      - name: PHPStan (nível max)
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+      - name: Deptrac (Domain não importa nada de fora)
+        run: vendor/bin/deptrac analyse --no-progress
+
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: goomer
+          POSTGRES_USER: goomer
+          POSTGRES_PASSWORD: goomer
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U goomer" --health-interval 3s --health-timeout 3s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['1025:1025', '8025:8025']
+    env:
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_NAME: goomer_test
+      DB_USER: goomer
+      DB_PASSWORD: goomer
+      JWT_SECRET: ci-secret-com-pelo-menos-32-caracteres
+      MAILER_DSN: smtp://localhost:1025
+      MAILPIT_URL: http://localhost:8025
+      APP_RESET_URL: http://localhost:8090/reset-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, intl
+          coverage: pcov
+      - run: composer install --no-interaction --no-progress
+      - name: Unitário
+        run: vendor/bin/phpunit --testsuite unit
+      - name: Caso de uso
+        run: vendor/bin/phpunit --testsuite usecase
+      - name: Integração (Postgres real)
+        run: vendor/bin/phpunit --testsuite integration
+      - name: Ponta a ponta
+        run: vendor/bin/phpunit --testsuite e2e
+      - name: Cobertura de Domain e Application (>= 90%)
+        run: |
+          vendor/bin/phpunit --coverage-clover coverage/clover.xml
+          php bin/coverage-check.php coverage/clover.xml 90
