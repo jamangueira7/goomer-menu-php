@@ -1,0 +1,6 @@
+/vendor/
+/.env
+/.phpunit.cache/
+/coverage/
+/.php-cs-fixer.cache
+/.deptrac.cache

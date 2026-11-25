@@ -1,0 +1,9 @@
+.git
+.github
+.githooks
+.claude
+.env
+vendor
+coverage
+.phpunit.cache
+docs

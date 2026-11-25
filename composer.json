@@ -1,0 +1,52 @@
+{
+    "name": "goomer/menu-api-php",
+    "description": "Goomer Menu API (trilha PHP): produtos, promoções e cardápio de restaurante com Slim 4 e arquitetura limpa.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "~8.4.0",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "doctrine/dbal": "^4.2",
+        "doctrine/migrations": "^3.8",
+        "firebase/php-jwt": "^7.0",
+        "php-di/php-di": "^7.0",
+        "slim/psr7": "^1.7",
+        "slim/slim": "^4.14",
+        "symfony/mailer": "^7.2",
+        "zircote/swagger-php": "^5.0"
+    },
+    "require-dev": {
+        "deptrac/deptrac": "^3.0",
+        "laravel/pint": "^1.20",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Goomer\\": "src/",
+            "Goomer\\Migrations\\": "migrations/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Goomer\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.4.0"
+        }
+    },
+    "scripts": {
+        "lint": "pint --test",
+        "fix": "pint",
+        "stan": "phpstan analyse --memory-limit=1G --no-progress",
+        "deptrac": "deptrac analyse --no-progress",
+        "test:unit": "phpunit --testsuite unit,usecase",
+        "test:integration": "phpunit --testsuite integration,e2e",
+        "test": "phpunit",
+        "check": ["@lint", "@stan", "@deptrac", "@test:unit"]
+    }
+}
