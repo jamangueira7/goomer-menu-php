@@ -7,6 +7,9 @@ namespace Goomer\Auth\Application;
 use Goomer\Auth\Domain\InvalidResetToken;
 use Goomer\Auth\Domain\PasswordResetToken;
 use Goomer\Auth\Domain\PasswordResetTokenRepository;
+use Goomer\Shared\Application\Audit\Actor;
+use Goomer\Shared\Application\Audit\Auditor;
+use Goomer\Shared\Application\TransactionManager;
 use Goomer\Shared\Domain\Clock;
 use Goomer\User\Application\PasswordHasher;
 use Goomer\User\Domain\Password;
@@ -22,9 +25,11 @@ final readonly class ResetPasswordUseCase
         private PasswordResetTokenRepository $tokens,
         private PasswordHasher $hasher,
         private Clock $clock,
+        private TransactionManager $transaction,
+        private Auditor $audit,
     ) {}
 
-    public function execute(string $plainToken, string $newPassword): void
+    public function execute(string $plainToken, string $newPassword, ?string $ip = null): void
     {
         $password = Password::fromString($newPassword);
         $now = $this->clock->now();
@@ -32,9 +37,17 @@ final readonly class ResetPasswordUseCase
         $token = $this->tokens->findByHash(PasswordResetToken::hash($plainToken)) ?? throw new InvalidResetToken();
         $token->consume($now);
         $user = $this->users->findById($token->userId()) ?? throw new InvalidResetToken();
-
         $user->changePassword($this->hasher->hash($password));
-        $this->users->save($user);
-        $this->tokens->save($token);
+
+        $this->transaction->run(function () use ($user, $token, $ip): void {
+            $this->users->save($user);
+            $this->tokens->save($token);
+            $this->audit->record(
+                new Actor($user->id(), $user->email()->value(), $user->restaurantId(), $ip),
+                'auth.password_reset',
+                'user',
+                $user->id(),
+            );
+        });
     }
 }

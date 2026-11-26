@@ -6,13 +6,17 @@ namespace Goomer\Auth\Application;
 
 use Goomer\Auth\Domain\PasswordResetToken;
 use Goomer\Auth\Domain\PasswordResetTokenRepository;
+use Goomer\Shared\Application\Audit\Actor;
+use Goomer\Shared\Application\Audit\Auditor;
 use Goomer\Shared\Application\Exception\TooManyRequests;
+use Goomer\Shared\Application\TransactionManager;
 use Goomer\Shared\Domain\Clock;
 use Goomer\User\Domain\Email;
 use Goomer\User\Domain\UserRepository;
 
 /**
  * Envia o link de redefinição. A resposta é a mesma exista ou não o e-mail; o limite vale para ambos.
+ * Só o pedido para e-mail existente entra no log de auditoria (o ator é o próprio dono do e-mail).
  */
 final readonly class ForgotPasswordUseCase
 {
@@ -25,6 +29,8 @@ final readonly class ForgotPasswordUseCase
         private ResetRequestThrottle $throttle,
         private Mailer $mailer,
         private Clock $clock,
+        private TransactionManager $transaction,
+        private Auditor $audit,
         private string $resetUrl,
     ) {}
 
@@ -46,8 +52,17 @@ final readonly class ForgotPasswordUseCase
         }
 
         $plain = bin2hex(random_bytes(32));
-        $this->tokens->invalidateOpenTokensOf($user->id(), $now);
-        $this->tokens->save(PasswordResetToken::issue($user->id(), $plain, $now));
+        $actor = new Actor(
+            $user->id(),
+            $user->email()->value(),
+            $user->restaurantId(),
+            filter_var($ip, FILTER_VALIDATE_IP) !== false ? $ip : null,
+        );
+        $this->transaction->run(function () use ($user, $plain, $now, $actor): void {
+            $this->tokens->invalidateOpenTokensOf($user->id(), $now);
+            $this->tokens->save(PasswordResetToken::issue($user->id(), $plain, $now));
+            $this->audit->record($actor, 'auth.password_reset_requested', 'user', $user->id());
+        });
 
         $separator = str_contains($this->resetUrl, '?') ? '&' : '?';
         $this->mailer->sendPasswordReset(

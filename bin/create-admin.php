@@ -27,7 +27,7 @@ $useCase = Container::create()->get(CreateUserUseCase::class);
 assert($useCase instanceof CreateUserUseCase);
 
 try {
-    $user = $useCase->execute($restaurant, $name, $email, $password);
+    $user = $useCase->bootstrap($restaurant, $name, $email, $password);
 } catch (DomainError $e) {
     fwrite(STDERR, 'Erro: ' . $e->getMessage() . "\n");
     exit(1);

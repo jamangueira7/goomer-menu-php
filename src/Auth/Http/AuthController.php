@@ -76,7 +76,7 @@ final readonly class AuthController
         $password = $input->string('password');
         $input->validate();
 
-        $this->reset->execute($token, $password);
+        $this->reset->execute($token, $password, CurrentActor::ip($request));
 
         return Json::noContent($response);
     }
