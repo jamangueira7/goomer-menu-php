@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Goomer\Promotion\Http;
 
+use Goomer\Auth\Http\CurrentActor;
 use Goomer\Auth\Http\JwtMiddleware;
 use Goomer\Promotion\Application\CreatePromotionUseCase;
 use Goomer\Promotion\Application\DeletePromotionUseCase;
@@ -26,6 +27,7 @@ final readonly class PromotionController
         private GetPromotionUseCase $get,
         private UpdatePromotionUseCase $update,
         private DeletePromotionUseCase $delete,
+        private CurrentActor $actor,
     ) {}
 
     /** @param array<string, string> $args */
@@ -54,7 +56,7 @@ final readonly class PromotionController
         $productId = $input->int('productId');
         $data = $this->data($input);
 
-        $output = $this->create->execute(JwtMiddleware::context($request)->restaurantId, $productId, $data);
+        $output = $this->create->execute($this->actor->of($request), $productId, $data);
 
         return Json::respond($response, $output->toArray(), 201)
             ->withHeader('Location', '/api/v1/promotions/' . $output->id);
@@ -81,7 +83,7 @@ final readonly class PromotionController
     {
         $id = Json::id($args);
         $data = $this->data(Input::fromRequest($request));
-        $output = $this->update->execute(JwtMiddleware::context($request)->restaurantId, $id, $data);
+        $output = $this->update->execute($this->actor->of($request), $id, $data);
 
         return Json::respond($response, $output->toArray());
     }
@@ -92,7 +94,7 @@ final readonly class PromotionController
     #[OA\Response(response: 204, description: 'Excluída')]
     public function destroy(Request $request, Response $response, array $args): Response
     {
-        $this->delete->execute(JwtMiddleware::context($request)->restaurantId, Json::id($args));
+        $this->delete->execute($this->actor->of($request), Json::id($args));
 
         return Json::noContent($response);
     }

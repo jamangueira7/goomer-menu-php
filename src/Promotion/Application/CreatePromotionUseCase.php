@@ -8,17 +8,22 @@ use Goomer\Product\Domain\ProductNotFound;
 use Goomer\Product\Domain\ProductRepository;
 use Goomer\Promotion\Domain\Promotion;
 use Goomer\Promotion\Domain\PromotionRepository;
+use Goomer\Shared\Application\Audit\Actor;
+use Goomer\Shared\Application\Audit\Auditor;
+use Goomer\Shared\Application\TransactionManager;
 
 final readonly class CreatePromotionUseCase
 {
     public function __construct(
         private ProductRepository $products,
         private PromotionRepository $promotions,
+        private TransactionManager $transaction,
+        private Auditor $audit,
     ) {}
 
-    public function execute(int $restaurantId, int $productId, PromotionData $data): PromotionOutput
+    public function execute(Actor $actor, int $productId, PromotionData $data): PromotionOutput
     {
-        $product = $this->products->find($restaurantId, $productId) ?? throw ProductNotFound::withId($productId);
+        $product = $this->products->find($actor->restaurantId, $productId) ?? throw ProductNotFound::withId($productId);
 
         $promotion = Promotion::create(
             $this->promotions->nextId(),
@@ -29,8 +34,13 @@ final readonly class CreatePromotionUseCase
             $data->timeWindows(),
         );
         $promotion->assertNoOverlapWith($this->promotions->ofProduct($product->id()));
-        $this->promotions->save($promotion);
 
-        return PromotionOutput::from($promotion);
+        return $this->transaction->run(function () use ($actor, $promotion): PromotionOutput {
+            $this->promotions->save($promotion);
+            $output = PromotionOutput::from($promotion);
+            $this->audit->record($actor, 'promotion.created', 'promotion', $promotion->id(), ['after' => $output->toArray()]);
+
+            return $output;
+        });
     }
 }
