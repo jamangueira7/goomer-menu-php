@@ -98,6 +98,7 @@ outras exigem `Authorization: Bearer <token>` e só enxergam dados do restaurant
 | `GET` `PUT` `DELETE` | `/promotions/{id}` | Detalha, altera e exclui uma promoção |
 | `GET` `POST` | `/users` | Lista e cria usuários do restaurante |
 | `DELETE` | `/users/{id}` | Exclui um usuário |
+| `GET` | `/users/{id}/audit-logs` | Log de auditoria do usuário: o que ele gravou, de `dateIni` até `dateEnd` (opcional), no fuso do restaurante |
 
 Os erros seguem o [Problem Details (RFC 9457)](https://www.rfc-editor.org/rfc/rfc9457), com o detalhe de cada campo
 em `errors`. JSON malformado dá 400, regra de negócio violada dá 422, conflito de horário dá 409 e id inexistente
@@ -158,6 +159,16 @@ curl -s -X POST $API/promotions -H "Authorization: Bearer $TOKEN" -H 'Content-Ty
 ```bash
 curl -s "$API/products?category=bebidas&visible=true&page=1&perPage=20" -H "Authorization: Bearer $TOKEN"
 curl -s -X PUT $API/products/order -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"ids":[2,1]}'
+```
+
+**6. Ler o log de auditoria.** Toda escrita (produto, promoção, usuário, troca de senha) grava quem fez, o quê e
+quando. O admin do seed tem id 1; os dias são do fuso do restaurante e `dateEnd` é opcional (sem ele, vai até hoje).
+
+```bash
+curl -s "$API/users/1/audit-logs?dateIni=$(date +%F)" -H "Authorization: Bearer $TOKEN"
+# {"data":[{"id":12,"action":"promotion.created","entityType":"promotion","entityId":2,
+#   "changes":{"after":{...}},"ip":"172.18.0.1","createdAt":"2026-11-25T18:31:04-03:00"}, ...],
+#  "user":{"id":1,"email":"admin@bardojoao.com"},"meta":{"page":1,"perPage":50,"total":11}}
 ```
 
 ### Recuperar a senha pelo Mailpit
@@ -225,15 +236,16 @@ O enunciado deixa alguns pontos em aberto. Estas foram as decisões, iguais nas 
 | Preço | Inteiro em centavos e um objeto de valor `Money`, nunca ponto flutuante |
 | Excluir produto que tem promoção | As promoções dele são excluídas junto |
 | Troca de senha | Tokens JWT antigos continuam válidos até vencer, no máximo 1 hora |
+| Log de auditoria | Gravado na mesma transação da escrita (sem escrita, sem log; log que falha desfaz a escrita). O ator não tem FK: o log sobrevive à exclusão do usuário, com o e-mail copiado no momento da ação |
 
 ## Testes e qualidade
 
 | Nível | Pasta | Testes | O que cobre |
 | --- | --- | --- | --- |
-| Unitário | `tests/Unit` | 31 | Regras do domínio, sem banco, em milissegundos |
-| Caso de uso | `tests/UseCase` | 29 | Repositórios em memória e relógio fixo em fusos diferentes |
-| Integração | `tests/Integration` | 14 | Repositórios PDO contra o Postgres real, incluindo o `EXCLUDE` e os `CHECK` |
-| Ponta a ponta | `tests/E2E` | 14 | App inteira, banco de teste e Mailpit de verdade (o token sai do e-mail) |
+| Unitário | `tests/Unit` | 39 | Regras do domínio, sem banco, em milissegundos |
+| Caso de uso | `tests/UseCase` | 37 | Repositórios em memória e relógio fixo em fusos diferentes |
+| Integração | `tests/Integration` | 18 | Repositórios PDO contra o Postgres real, incluindo o `EXCLUDE`, os `CHECK` e o rollback do log |
+| Ponta a ponta | `tests/E2E` | 18 | App inteira, banco de teste e Mailpit de verdade (o token sai do e-mail) |
 
 | Comando | O que faz |
 | --- | --- |

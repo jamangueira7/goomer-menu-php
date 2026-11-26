@@ -85,6 +85,7 @@ Como a autenticação funciona nas três trilhas:
 | `POST /api/v1/users` | JWT | Cadastra usuário (nome, e-mail e senha) no restaurante do token; 409 se o e-mail já existe |
 | `GET /api/v1/users` | JWT | Lista os usuários do restaurante, sem nunca devolver o hash da senha |
 | `DELETE /api/v1/users/{id}` | JWT | Remove um usuário do restaurante; 422 se a pessoa tentar remover a si mesma |
+| `GET /api/v1/users/{id}/audit-logs` | JWT | Log de auditoria do usuário `{id}` (o ator), com `?dateIni=` obrigatório, `?dateEnd=` opcional e paginação; ver "Log de auditoria" |
 | `POST /api/v1/auth/forgot-password` | Sem token | Recebe o e-mail e envia o link de redefinição; responde sempre 202 |
 | `POST /api/v1/auth/reset-password` | Sem token | Recebe o token do e-mail e a nova senha; 204 se deu certo, 422 se o token é inválido, já foi usado ou venceu |
 
@@ -98,6 +99,50 @@ Regras do cadastro e da recuperação:
 - O link usa a variável `APP_RESET_URL` com `?token=` no fim. Como o projeto não tem front, o README mostra como pegar o token no Mailpit e chamar `reset-password`.
 - O envio fica atrás da porta `Mailer` na camada de aplicação. Se o SMTP falhar, o erro é registrado no log e a resposta continua 202.
 - Depois da troca de senha, tokens JWT antigos continuam válidos até vencer, no máximo 1 hora; essa decisão vai para o README.
+
+### Log de auditoria
+
+Toda escrita de negócio grava **uma** linha em `audit_logs` (o que foi feito e quem fez), **na mesma transação** da escrita: se a escrita falha, não há log; se o log falha, a escrita é desfeita.
+
+| Ação (`action`) | Quando | `entityType` / `entityId` | `changes` |
+| --- | --- | --- | --- |
+| `product.created` | `POST /products` | `product` / id | `{"after": {...}}` |
+| `product.updated` | `PUT /products/{id}` | `product` / id | `{"before": {...}, "after": {...}}` só com os campos que mudaram |
+| `product.visibility_changed` | `PATCH /products/{id}/visibility` | `product` / id | `{"before": {"visible": x}, "after": {"visible": y}}` |
+| `product.reordered` | `PUT /products/order` | `product` / `null` | `{"after": {"ids": [...]}}` |
+| `product.deleted` | `DELETE /products/{id}` | `product` / id | `{"before": {...}}`, com quantas promoções caíram junto em cascata |
+| `promotion.created` / `.updated` / `.deleted` | rotas de promoção | `promotion` / id | Mesmo padrão de/para, com as janelas |
+| `user.created` / `user.deleted` | rotas de usuário | `user` / id | Nome e e-mail; nunca senha nem hash |
+| `auth.password_reset_requested` | `forgot-password` com e-mail existente | `user` / id | `{}`; o ator é o próprio dono do e-mail |
+| `auth.password_reset` | `reset-password` com sucesso | `user` / id | `{}` |
+
+Não entram no log: leituras, login e pedidos de reset para e-mail inexistente (não há a quem atribuir; o limite de 429 continua na tabela de pedidos). Nunca se grava senha, hash, token ou JWT.
+
+Desenho: porta `AuditLog` (`record`) e porta `TransactionManager` na camada de aplicação de `Shared`, implementações SQL na infraestrutura. O "quem" é um `Actor` (id e e-mail do usuário, restaurante e IP) montado na borda a partir do token e da requisição; o domínio não sabe de HTTP. A hora vem do `Clock`, não do `now()` do banco.
+
+`GET /api/v1/users/{id}/audit-logs?dateIni=2026-11-25&dateEnd=2026-11-26&page=1&perPage=50`:
+
+- `{id}` é o ator. Usuário inexistente ou de outro restaurante: 404. Usuário já excluído, mas com log no restaurante: o log volta normalmente.
+- `dateIni` obrigatório e `dateEnd` opcional (sem ele, vai até hoje), no formato `AAAA-MM-DD`. Os dias são do fuso do restaurante e inclusivos: o exemplo pega de 25/11 00:00 a 26/11 23:59:59 locais. Data inválida ou `dateEnd` antes de `dateIni`: 422 com `errors` por campo.
+- Mais recentes primeiro, paginado como `/products` (`perPage` padrão 50, máximo 100):
+
+```json
+{
+  "data": [
+    {
+      "id": 42,
+      "action": "promotion.created",
+      "entityType": "promotion",
+      "entityId": 9,
+      "changes": { "after": { "description": "Sexta da caipirinha", "price": 1500, "windows": [] } },
+      "ip": "172.18.0.1",
+      "createdAt": "2026-11-25T18:31:04-03:00"
+    }
+  ],
+  "user": { "id": 1, "email": "admin@bardojoao.com" },
+  "meta": { "page": 1, "perPage": 50, "total": 1 }
+}
+```
 
 Padrão de respostas: erros no formato Problem Details (`application/problem+json`), 422 para dados inválidos, 404 para não encontrado, 409 para conflito de horário e preços sempre em centavos.
 
@@ -135,6 +180,7 @@ O mesmo esquema nas três trilhas. As regras que dá para garantir no banco fica
 | `product_availability` | `product_id`, `weekday`, `start_time`, `end_time` | `weekday` de 0 a 6; minutos múltiplos de 15; `end_time >= start_time + 15 min` |
 | `promotions` | `id`, `product_id`, `description`, `promo_price_cents` | `ON DELETE CASCADE` a partir do produto |
 | `promotion_windows` | `promotion_id`, `product_id`, `weekday`, `start_time`, `end_time` | Mesmas regras de horário, mais `EXCLUDE USING gist` impedindo janelas sobrepostas do mesmo produto no mesmo dia |
+| `audit_logs` | `id`, `restaurant_id`, `actor_user_id`, `actor_email`, `action`, `entity_type`, `entity_id`, `changes` (`jsonb`), `ip` (`inet`), `created_at` | Só `INSERT`; `actor_user_id` **sem** FK para o log sobreviver à exclusão do usuário (o e-mail é copiado no momento da ação); índice em `(restaurant_id, actor_user_id, created_at DESC)` |
 
 Para usuários e recuperação de senha, `users` ganha a coluna `name` e entra a tabela `password_reset_tokens` (`id`, `user_id`, `token_hash`, `expires_at`, `used_at`, `created_at`), com índice único em `token_hash` e `ON DELETE CASCADE` a partir do usuário.
 
