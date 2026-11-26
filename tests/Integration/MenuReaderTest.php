@@ -14,6 +14,7 @@ use Goomer\Promotion\Application\CreatePromotionUseCase;
 use Goomer\Promotion\Application\PromotionData;
 use Goomer\Promotion\Infrastructure\PdoPromotionRepository;
 use Goomer\Shared\Domain\Timezone;
+use Goomer\Tests\Support\InMemoryAudit;
 use Goomer\Tests\Support\TestDatabase;
 use PHPUnit\Framework\TestCase;
 
@@ -26,20 +27,21 @@ final class MenuReaderTest extends TestCase
         $db = TestDatabase::reset();
         $this->reader = new PdoMenuReader($db);
         $products = new PdoProductRepository($db);
-        $create = new CreateProductUseCase($products);
+        $audit = new InMemoryAudit();
+        $create = new CreateProductUseCase($products, $audit, $audit->auditor());
 
-        $chopp = $create->execute(1, new ProductData('Chopp', 1400, 'bebidas'))->id;
-        $agua = $create->execute(1, new ProductData('Água', 500, 'bebidas'))->id;
-        $create->execute(1, new ProductData('Pudim', 1800, 'sobremesas'));
-        $create->execute(1, new ProductData('Bolinho', 3200, 'entradas'));
-        $create->execute(1, new ProductData('Escondido', 1000, 'entradas', false));
-        $create->execute(1, new ProductData('Feijoada', 6500, 'pratos_principais', true, [
+        $chopp = $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Chopp', 1400, 'bebidas'))->id;
+        $agua = $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Água', 500, 'bebidas'))->id;
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Pudim', 1800, 'sobremesas'));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Bolinho', 3200, 'entradas'));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Escondido', 1000, 'entradas', false));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Feijoada', 6500, 'pratos_principais', true, [
             ['weekday' => 6, 'start' => '11:00', 'end' => '16:00'],
         ]));
-        $create->execute(2, new ProductData('De outro restaurante', 1000, 'bebidas'));
-        (new ReorderProductsUseCase($products))->execute(1, [$agua, $chopp]);
+        $create->execute(InMemoryAudit::actor(1, 2), new ProductData('De outro restaurante', 1000, 'bebidas'));
+        (new ReorderProductsUseCase($products, $audit, $audit->auditor()))->execute(InMemoryAudit::actor(), [$agua, $chopp]);
 
-        (new CreatePromotionUseCase($products, new PdoPromotionRepository($db)))->execute(1, $chopp, new PromotionData(
+        (new CreatePromotionUseCase($products, new PdoPromotionRepository($db), $audit, $audit->auditor()))->execute(InMemoryAudit::actor(), $chopp, new PromotionData(
             'Happy hour',
             700,
             [['weekday' => 3, 'start' => '18:00', 'end' => '20:00']],

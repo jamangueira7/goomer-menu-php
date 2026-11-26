@@ -32,6 +32,7 @@ abstract class ApiTestCase extends TestCase
     protected App $app;
     protected ContainerInterface $container;
     protected string $remoteAddr = '10.0.0.1';
+    protected int $adminId;
 
     protected function setUp(): void
     {
@@ -42,7 +43,7 @@ abstract class ApiTestCase extends TestCase
 
         $users = $this->container->get(CreateUserUseCase::class);
         self::assertInstanceOf(CreateUserUseCase::class, $users);
-        $users->execute(1, 'Admin', self::ADMIN_EMAIL, self::ADMIN_PASSWORD);
+        $this->adminId = $users->bootstrap(1, 'Admin', self::ADMIN_EMAIL, self::ADMIN_PASSWORD)->id;
     }
 
     /**
