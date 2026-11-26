@@ -6,17 +6,32 @@ namespace Goomer\Product\Application;
 
 use Goomer\Product\Domain\ProductNotFound;
 use Goomer\Product\Domain\ProductRepository;
+use Goomer\Shared\Application\Audit\Actor;
+use Goomer\Shared\Application\Audit\Auditor;
+use Goomer\Shared\Application\TransactionManager;
 
 final readonly class ChangeProductVisibilityUseCase
 {
-    public function __construct(private ProductRepository $products) {}
+    public function __construct(
+        private ProductRepository $products,
+        private TransactionManager $transaction,
+        private Auditor $audit,
+    ) {}
 
-    public function execute(int $restaurantId, int $id, bool $visible): ProductOutput
+    public function execute(Actor $actor, int $id, bool $visible): ProductOutput
     {
-        $product = $this->products->find($restaurantId, $id) ?? throw ProductNotFound::withId($id);
+        $product = $this->products->find($actor->restaurantId, $id) ?? throw ProductNotFound::withId($id);
+        $wasVisible = $product->isVisible();
         $visible ? $product->show() : $product->hide();
-        $this->products->save($product);
 
-        return ProductOutput::from($product);
+        return $this->transaction->run(function () use ($actor, $product, $wasVisible, $visible): ProductOutput {
+            $this->products->save($product);
+            $this->audit->record($actor, 'product.visibility_changed', 'product', $product->id(), [
+                'before' => ['visible' => $wasVisible],
+                'after' => ['visible' => $visible],
+            ]);
+
+            return ProductOutput::from($product);
+        });
     }
 }

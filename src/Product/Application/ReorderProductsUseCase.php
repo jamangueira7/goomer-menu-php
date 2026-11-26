@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Goomer\Product\Application;
 
 use Goomer\Product\Domain\ProductRepository;
+use Goomer\Shared\Application\Audit\Actor;
+use Goomer\Shared\Application\Audit\Auditor;
+use Goomer\Shared\Application\TransactionManager;
 use Goomer\Shared\Domain\Exception\ValidationError;
 
 /**
@@ -13,12 +16,16 @@ use Goomer\Shared\Domain\Exception\ValidationError;
  */
 final readonly class ReorderProductsUseCase
 {
-    public function __construct(private ProductRepository $products) {}
+    public function __construct(
+        private ProductRepository $products,
+        private TransactionManager $transaction,
+        private Auditor $audit,
+    ) {}
 
     /**
      * @param list<int> $ids
      */
-    public function execute(int $restaurantId, array $ids): void
+    public function execute(Actor $actor, array $ids): void
     {
         if ($ids === []) {
             throw new ValidationError('Informe ao menos um id de produto.', 'ids');
@@ -27,7 +34,7 @@ final readonly class ReorderProductsUseCase
             throw new ValidationError('A lista de ids tem repetições.', 'ids');
         }
 
-        $existing = $this->products->idsOf($restaurantId);
+        $existing = $this->products->idsOf($actor->restaurantId);
         $unknown = array_values(array_diff($ids, $existing));
         if ($unknown !== []) {
             throw new ValidationError(sprintf('Produtos inexistentes: %s.', implode(', ', $unknown)), 'ids');
@@ -38,6 +45,10 @@ final readonly class ReorderProductsUseCase
         foreach ($ordered as $index => $id) {
             $positions[$id] = $index + 1;
         }
-        $this->products->savePositions($restaurantId, $positions);
+
+        $this->transaction->run(function () use ($actor, $ids, $positions): void {
+            $this->products->savePositions($actor->restaurantId, $positions);
+            $this->audit->record($actor, 'product.reordered', 'product', null, ['after' => ['ids' => $ids]]);
+        });
     }
 }

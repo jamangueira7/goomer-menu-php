@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Goomer\Product\Http;
 
+use Goomer\Auth\Http\CurrentActor;
 use Goomer\Auth\Http\JwtMiddleware;
 use Goomer\Product\Application\ChangeProductVisibilityUseCase;
 use Goomer\Product\Application\CreateProductUseCase;
@@ -30,6 +31,7 @@ final readonly class ProductController
         private ChangeProductVisibilityUseCase $visibility,
         private ReorderProductsUseCase $reorder,
         private DeleteProductUseCase $delete,
+        private CurrentActor $actor,
     ) {}
 
     /** @param array<string, string> $args */
@@ -66,7 +68,7 @@ final readonly class ProductController
     #[OA\Response(response: 422, description: 'Dados inválidos')]
     public function store(Request $request, Response $response, array $args): Response
     {
-        $output = $this->create->execute(JwtMiddleware::context($request)->restaurantId, $this->data($request));
+        $output = $this->create->execute($this->actor->of($request), $this->data($request));
 
         return Json::respond($response, $output->toArray(), 201)
             ->withHeader('Location', '/api/v1/products/' . $output->id);
@@ -92,7 +94,7 @@ final readonly class ProductController
     public function update(Request $request, Response $response, array $args): Response
     {
         $id = Json::id($args);
-        $output = $this->update->execute(JwtMiddleware::context($request)->restaurantId, $id, $this->data($request));
+        $output = $this->update->execute($this->actor->of($request), $id, $this->data($request));
 
         return Json::respond($response, $output->toArray());
     }
@@ -109,7 +111,7 @@ final readonly class ProductController
         $visible = $input->bool('visible');
         $input->validate();
 
-        $output = $this->visibility->execute(JwtMiddleware::context($request)->restaurantId, $id, $visible);
+        $output = $this->visibility->execute($this->actor->of($request), $id, $visible);
 
         return Json::respond($response, $output->toArray());
     }
@@ -124,7 +126,7 @@ final readonly class ProductController
         $ids = $input->intList('ids');
         $input->validate();
 
-        $this->reorder->execute(JwtMiddleware::context($request)->restaurantId, $ids);
+        $this->reorder->execute($this->actor->of($request), $ids);
 
         return Json::noContent($response);
     }
@@ -135,7 +137,7 @@ final readonly class ProductController
     #[OA\Response(response: 204, description: 'Excluído')]
     public function destroy(Request $request, Response $response, array $args): Response
     {
-        $this->delete->execute(JwtMiddleware::context($request)->restaurantId, Json::id($args));
+        $this->delete->execute($this->actor->of($request), Json::id($args));
 
         return Json::noContent($response);
     }
