@@ -51,6 +51,7 @@ final class Routes
                 $auth->get('/users', [UserController::class, 'index']);
                 $auth->post('/users', [UserController::class, 'store']);
                 $auth->delete('/users/{id}', [UserController::class, 'destroy']);
+                $auth->get('/users/{id}/audit-logs', [UserController::class, 'auditLogs']);
             })->add(JwtMiddleware::class);
         });
 
