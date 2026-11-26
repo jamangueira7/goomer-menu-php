@@ -14,31 +14,35 @@ use Goomer\Product\Application\ReorderProductsUseCase;
 use Goomer\Product\Application\UpdateProductUseCase;
 use Goomer\Product\Domain\ProductNotFound;
 use Goomer\Shared\Domain\Exception\ValidationError;
+use Goomer\Tests\Support\InMemoryAudit;
 use Goomer\Tests\Support\InMemoryProductRepository;
+use Goomer\Tests\Support\InMemoryPromotionRepository;
 use PHPUnit\Framework\TestCase;
 
 final class ProductUseCasesTest extends TestCase
 {
     private InMemoryProductRepository $products;
+    private InMemoryAudit $audit;
 
     protected function setUp(): void
     {
         $this->products = new InMemoryProductRepository();
+        $this->audit = new InMemoryAudit();
     }
 
     private function create(int $restaurant, string $name, string $category = 'bebidas', bool $visible = true): int
     {
-        return (new CreateProductUseCase($this->products))
-            ->execute($restaurant, new ProductData($name, 1000, $category, $visible))->id;
+        return (new CreateProductUseCase($this->products, $this->audit, $this->audit->auditor()))
+            ->execute(InMemoryAudit::actor(1, $restaurant), new ProductData($name, 1000, $category, $visible))->id;
     }
 
     public function test_create_assigns_next_position_and_returns_output(): void
     {
-        $useCase = new CreateProductUseCase($this->products);
-        $first = $useCase->execute(1, new ProductData('Chopp', 1400, 'bebidas', true, [
+        $useCase = new CreateProductUseCase($this->products, $this->audit, $this->audit->auditor());
+        $first = $useCase->execute(InMemoryAudit::actor(), new ProductData('Chopp', 1400, 'bebidas', true, [
             ['weekday' => 3, 'start' => '18:00', 'end' => '20:00'],
         ]));
-        $second = $useCase->execute(1, new ProductData('Água', 500, 'bebidas'));
+        $second = $useCase->execute(InMemoryAudit::actor(), new ProductData('Água', 500, 'bebidas'));
 
         self::assertSame(1, $first->position);
         self::assertSame(2, $second->position);
@@ -48,9 +52,9 @@ final class ProductUseCasesTest extends TestCase
 
     public function test_create_rejects_invalid_category_and_window(): void
     {
-        $useCase = new CreateProductUseCase($this->products);
+        $useCase = new CreateProductUseCase($this->products, $this->audit, $this->audit->auditor());
         $this->expectException(ValidationError::class);
-        $useCase->execute(1, new ProductData('Chopp', 1400, 'bebidas', true, [
+        $useCase->execute(InMemoryAudit::actor(), new ProductData('Chopp', 1400, 'bebidas', true, [
             ['weekday' => 3, 'start' => '18:10', 'end' => '20:00'],
         ]));
     }
@@ -59,13 +63,13 @@ final class ProductUseCasesTest extends TestCase
     {
         $id = $this->create(1, 'Chopp');
 
-        $updated = (new UpdateProductUseCase($this->products))->execute(1, $id, new ProductData('Chopp 500 ml', 1900, 'bebidas'));
+        $updated = (new UpdateProductUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(1, 1), $id, new ProductData('Chopp 500 ml', 1900, 'bebidas'));
         self::assertSame('Chopp 500 ml', $updated->name);
         self::assertSame(1900, (new GetProductUseCase($this->products))->execute(1, $id)->price);
 
-        $hidden = (new ChangeProductVisibilityUseCase($this->products))->execute(1, $id, false);
+        $hidden = (new ChangeProductVisibilityUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), $id, false);
         self::assertFalse($hidden->visible);
-        self::assertTrue((new ChangeProductVisibilityUseCase($this->products))->execute(1, $id, true)->visible);
+        self::assertTrue((new ChangeProductVisibilityUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), $id, true)->visible);
 
         $this->expectException(ProductNotFound::class);
         (new GetProductUseCase($this->products))->execute(2, $id);
@@ -75,7 +79,7 @@ final class ProductUseCasesTest extends TestCase
     {
         $id = $this->create(1, 'Chopp');
         $this->expectException(ProductNotFound::class);
-        (new UpdateProductUseCase($this->products))->execute(2, $id, new ProductData('X', 100, 'bebidas'));
+        (new UpdateProductUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(1, 2), $id, new ProductData('X', 100, 'bebidas'));
     }
 
     public function test_list_filters_and_paginates(): void
@@ -105,7 +109,7 @@ final class ProductUseCasesTest extends TestCase
         $b = $this->create(1, 'B');
         $c = $this->create(1, 'C');
 
-        (new ReorderProductsUseCase($this->products))->execute(1, [$c, $a]);
+        (new ReorderProductsUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(1, 1), [$c, $a]);
 
         self::assertSame([$c, $a, $b], $this->products->idsOf(1));
     }
@@ -114,11 +118,11 @@ final class ProductUseCasesTest extends TestCase
     {
         $a = $this->create(1, 'A');
         $other = $this->create(2, 'De outro');
-        $reorder = new ReorderProductsUseCase($this->products);
+        $reorder = new ReorderProductsUseCase($this->products, $this->audit, $this->audit->auditor());
 
         foreach ([[], [$a, $a], [$a, $other]] as $ids) {
             try {
-                $reorder->execute(1, $ids);
+                $reorder->execute(InMemoryAudit::actor(), $ids);
                 self::fail('Era para recusar ' . json_encode($ids));
             } catch (ValidationError $e) {
                 self::assertSame('ids', $e->field());
@@ -129,11 +133,11 @@ final class ProductUseCasesTest extends TestCase
     public function test_delete(): void
     {
         $id = $this->create(1, 'Chopp');
-        $delete = new DeleteProductUseCase($this->products);
-        $delete->execute(1, $id);
+        $delete = new DeleteProductUseCase($this->products, new InMemoryPromotionRepository($this->products), $this->audit, $this->audit->auditor());
+        $delete->execute(InMemoryAudit::actor(), $id);
         self::assertSame([], $this->products->idsOf(1));
 
         $this->expectException(ProductNotFound::class);
-        $delete->execute(1, $id);
+        $delete->execute(InMemoryAudit::actor(), $id);
     }
 }

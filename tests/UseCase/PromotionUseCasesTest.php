@@ -17,6 +17,7 @@ use Goomer\Promotion\Application\UpdatePromotionUseCase;
 use Goomer\Promotion\Domain\OverlappingPromotion;
 use Goomer\Promotion\Domain\PromotionNotFound;
 use Goomer\Shared\Domain\Exception\ValidationError;
+use Goomer\Tests\Support\InMemoryAudit;
 use Goomer\Tests\Support\InMemoryProductRepository;
 use Goomer\Tests\Support\InMemoryPromotionRepository;
 use PHPUnit\Framework\TestCase;
@@ -25,19 +26,21 @@ final class PromotionUseCasesTest extends TestCase
 {
     private InMemoryProductRepository $products;
     private InMemoryPromotionRepository $promotions;
+    private InMemoryAudit $audit;
     private int $chopp;
 
     protected function setUp(): void
     {
         $this->products = new InMemoryProductRepository();
+        $this->audit = new InMemoryAudit();
         $this->promotions = new InMemoryPromotionRepository($this->products);
-        $this->chopp = (new CreateProductUseCase($this->products))->execute(1, new ProductData('Chopp', 1400, 'bebidas'))->id;
+        $this->chopp = (new CreateProductUseCase($this->products, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), new ProductData('Chopp', 1400, 'bebidas'))->id;
     }
 
     private function create(string $start, string $end, int $price = 700, int $restaurant = 1): int
     {
-        return (new CreatePromotionUseCase($this->products, $this->promotions))->execute(
-            $restaurant,
+        return (new CreatePromotionUseCase($this->products, $this->promotions, $this->audit, $this->audit->auditor()))->execute(
+            InMemoryAudit::actor(1, $restaurant),
             $this->chopp,
             new PromotionData('Happy hour', $price, [['weekday' => 3, 'start' => $start, 'end' => $end]]),
         )->id;
@@ -79,20 +82,20 @@ final class PromotionUseCasesTest extends TestCase
     {
         $first = $this->create('18:00', '20:00');
         $second = $this->create('20:00', '22:00');
-        $update = new UpdatePromotionUseCase($this->products, $this->promotions);
+        $update = new UpdatePromotionUseCase($this->products, $this->promotions, $this->audit, $this->audit->auditor());
 
-        $same = $update->execute(1, $first, new PromotionData('Novo nome', 600, [['weekday' => 3, 'start' => '18:00', 'end' => '20:00']]));
+        $same = $update->execute(InMemoryAudit::actor(1, 1), $first, new PromotionData('Novo nome', 600, [['weekday' => 3, 'start' => '18:00', 'end' => '20:00']]));
         self::assertSame('Novo nome', $same->description);
 
         try {
-            $update->execute(1, $second, new PromotionData('Choque', 600, [['weekday' => 3, 'start' => '19:00', 'end' => '21:00']]));
+            $update->execute(InMemoryAudit::actor(1, 1), $second, new PromotionData('Choque', 600, [['weekday' => 3, 'start' => '19:00', 'end' => '21:00']]));
             self::fail('Era para dar conflito');
         } catch (OverlappingPromotion) {
             self::addToAssertionCount(1);
         }
 
         $this->expectException(PromotionNotFound::class);
-        $update->execute(2, $first, new PromotionData('Outro restaurante', 600, [['weekday' => 1, 'start' => '18:00', 'end' => '20:00']]));
+        $update->execute(InMemoryAudit::actor(1, 2), $first, new PromotionData('Outro restaurante', 600, [['weekday' => 1, 'start' => '18:00', 'end' => '20:00']]));
     }
 
     public function test_list_filter_and_delete(): void
@@ -105,17 +108,17 @@ final class PromotionUseCasesTest extends TestCase
         self::assertCount(0, $list->execute(1, 999));
         self::assertCount(0, $list->execute(2, null));
 
-        (new DeletePromotionUseCase($this->promotions))->execute(1, $id);
+        (new DeletePromotionUseCase($this->promotions, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), $id);
         self::assertCount(0, $list->execute(1, null));
 
         $this->expectException(PromotionNotFound::class);
-        (new DeletePromotionUseCase($this->promotions))->execute(1, $id);
+        (new DeletePromotionUseCase($this->promotions, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), $id);
     }
 
     public function test_deleting_product_removes_its_promotions(): void
     {
         $this->create('18:00', '20:00');
-        (new DeleteProductUseCase($this->products))->execute(1, $this->chopp);
+        (new DeleteProductUseCase($this->products, $this->promotions, $this->audit, $this->audit->auditor()))->execute(InMemoryAudit::actor(), $this->chopp);
 
         self::assertCount(0, (new ListPromotionsUseCase($this->promotions))->execute(1, null));
     }

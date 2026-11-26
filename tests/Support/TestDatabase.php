@@ -60,7 +60,7 @@ final class TestDatabase
     {
         $db = self::db();
         $db->execute('TRUNCATE restaurants, products, product_availability, promotions, promotion_windows, users,
-            password_reset_tokens, password_reset_requests RESTART IDENTITY CASCADE');
+            password_reset_tokens, password_reset_requests, audit_logs RESTART IDENTITY CASCADE');
         $db->execute("INSERT INTO restaurants (id, name, timezone) VALUES
             (1, 'Bar do João', 'America/Sao_Paulo'), (2, 'Izakaya', 'Asia/Tokyo')");
         $db->execute("SELECT setval(pg_get_serial_sequence('restaurants', 'id'), 2)");

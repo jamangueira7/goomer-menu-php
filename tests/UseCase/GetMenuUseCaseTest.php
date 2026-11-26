@@ -13,6 +13,7 @@ use Goomer\Promotion\Application\CreatePromotionUseCase;
 use Goomer\Promotion\Application\PromotionData;
 use Goomer\Shared\Domain\Timezone;
 use Goomer\Tests\Support\FixedClock;
+use Goomer\Tests\Support\InMemoryAudit;
 use Goomer\Tests\Support\InMemoryMenu;
 use Goomer\Tests\Support\InMemoryProductRepository;
 use Goomer\Tests\Support\InMemoryPromotionRepository;
@@ -32,19 +33,20 @@ final class GetMenuUseCaseTest extends TestCase
         $this->menu->addRestaurant(new Restaurant(2, 'Izakaya', Timezone::fromString('Asia/Tokyo')));
         $this->clock = new FixedClock('2026-12-02T21:30:00Z'); // quarta, 18:30 em São Paulo
 
-        $create = new CreateProductUseCase($products);
-        $chopp = $create->execute(1, new ProductData('Chopp 300 ml', 1400, 'bebidas'))->id;
-        $create->execute(1, new ProductData('Pudim', 1800, 'sobremesas'));
-        $create->execute(1, new ProductData('Bolinho', 3200, 'entradas'));
-        $create->execute(1, new ProductData('Escondido', 1000, 'entradas', false));
-        $create->execute(1, new ProductData('Feijoada', 6500, 'pratos_principais', true, [
+        $audit = new InMemoryAudit();
+        $create = new CreateProductUseCase($products, $audit, $audit->auditor());
+        $chopp = $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Chopp 300 ml', 1400, 'bebidas'))->id;
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Pudim', 1800, 'sobremesas'));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Bolinho', 3200, 'entradas'));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Escondido', 1000, 'entradas', false));
+        $create->execute(InMemoryAudit::actor(1, 1), new ProductData('Feijoada', 6500, 'pratos_principais', true, [
             ['weekday' => 6, 'start' => '11:00', 'end' => '16:00'],
         ]));
-        $create->execute(2, new ProductData('Lámen', 4500, 'pratos_principais', true, [
+        $create->execute(InMemoryAudit::actor(1, 2), new ProductData('Lámen', 4500, 'pratos_principais', true, [
             ['weekday' => 4, 'start' => '06:00', 'end' => '07:00'],
         ]));
 
-        (new CreatePromotionUseCase($products, $promotions))->execute(1, $chopp, new PromotionData(
+        (new CreatePromotionUseCase($products, $promotions, $audit, $audit->auditor()))->execute(InMemoryAudit::actor(), $chopp, new PromotionData(
             'Happy hour: chopp pela metade do preço',
             700,
             [['weekday' => 3, 'start' => '18:00', 'end' => '20:00']],

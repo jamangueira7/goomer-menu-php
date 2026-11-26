@@ -13,6 +13,7 @@ use Goomer\Shared\Application\Exception\Unauthenticated;
 use Goomer\Tests\Support\AuthFakes;
 use Goomer\Tests\Support\FakeHasher;
 use Goomer\Tests\Support\FixedClock;
+use Goomer\Tests\Support\InMemoryAudit;
 use Goomer\Tests\Support\InMemoryUserRepository;
 use Goomer\User\Application\CreateUserUseCase;
 use Goomer\User\Application\DeleteUserUseCase;
@@ -27,6 +28,7 @@ final class AuthAndUserUseCasesTest extends TestCase
     private InMemoryUserRepository $users;
     private AuthFakes $fakes;
     private FixedClock $clock;
+    private InMemoryAudit $audit;
     private int $adminId;
 
     protected function setUp(): void
@@ -34,22 +36,33 @@ final class AuthAndUserUseCasesTest extends TestCase
         $this->users = new InMemoryUserRepository();
         $this->fakes = new AuthFakes();
         $this->clock = new FixedClock('2026-12-02T12:00:00Z');
+        $this->audit = new InMemoryAudit($this->clock);
         $this->adminId = $this->createUser(1, 'admin@bar.com')->id;
     }
 
     private function createUser(int $restaurant, string $email): \Goomer\User\Application\UserOutput
     {
-        return (new CreateUserUseCase($this->users, new FakeHasher()))->execute($restaurant, 'Pessoa', $email, 'senha-forte');
+        return (new CreateUserUseCase($this->users, new FakeHasher(), $this->audit, $this->audit->auditor()))
+            ->bootstrap($restaurant, 'Pessoa', $email, 'senha-forte');
     }
 
     private function forgot(): ForgotPasswordUseCase
     {
-        return new ForgotPasswordUseCase($this->users, $this->fakes, $this->fakes, $this->fakes, $this->clock, 'http://app/reset?x=1');
+        return new ForgotPasswordUseCase(
+            $this->users,
+            $this->fakes,
+            $this->fakes,
+            $this->fakes,
+            $this->clock,
+            $this->audit,
+            $this->audit->auditor(),
+            'http://app/reset?x=1',
+        );
     }
 
     private function reset(): ResetPasswordUseCase
     {
-        return new ResetPasswordUseCase($this->users, $this->fakes, new FakeHasher(), $this->clock);
+        return new ResetPasswordUseCase($this->users, $this->fakes, new FakeHasher(), $this->clock, $this->audit, $this->audit->auditor());
     }
 
     public function test_login_returns_token_with_user_and_restaurant(): void
@@ -92,20 +105,21 @@ final class AuthAndUserUseCasesTest extends TestCase
     {
         $bia = $this->createUser(1, 'bia@bar.com')->id;
         $other = $this->createUser(2, 'outro@rest.com')->id;
-        $delete = new DeleteUserUseCase($this->users);
+        $delete = new DeleteUserUseCase($this->users, $this->audit, $this->audit->auditor());
+        $admin = InMemoryAudit::actor($this->adminId);
 
-        $delete->execute(1, $this->adminId, $bia);
+        $delete->execute($admin, $bia);
         self::assertNull($this->users->findById($bia));
 
         try {
-            $delete->execute(1, $this->adminId, $other);
+            $delete->execute($admin, $other);
             self::fail('Usuário de outro restaurante');
         } catch (UserNotFound) {
             self::addToAssertionCount(1);
         }
 
         $this->expectException(CannotDeleteSelf::class);
-        $delete->execute(1, $this->adminId, $this->adminId);
+        $delete->execute($admin, $this->adminId);
     }
 
     public function test_forgot_and_reset_password_flow(): void
