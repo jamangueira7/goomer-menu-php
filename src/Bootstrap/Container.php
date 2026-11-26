@@ -22,9 +22,13 @@ use Goomer\Product\Domain\ProductRepository;
 use Goomer\Product\Infrastructure\PdoProductRepository;
 use Goomer\Promotion\Domain\PromotionRepository;
 use Goomer\Promotion\Infrastructure\PdoPromotionRepository;
+use Goomer\Shared\Application\Audit\AuditLog;
+use Goomer\Shared\Application\TransactionManager;
 use Goomer\Shared\Domain\Clock;
 use Goomer\Shared\Http\Docs\DocsController;
+use Goomer\Shared\Infrastructure\Audit\PdoAuditLog;
 use Goomer\Shared\Infrastructure\Database\Database;
+use Goomer\Shared\Infrastructure\Database\PdoTransactionManager;
 use Goomer\Shared\Infrastructure\SystemClock;
 use Goomer\User\Application\PasswordHasher;
 use Goomer\User\Domain\UserRepository;
@@ -76,6 +80,8 @@ final class Container
             )),
             Clock::class => autowire(SystemClock::class),
             ResponseFactoryInterface::class => autowire(ResponseFactory::class),
+            TransactionManager::class => autowire(PdoTransactionManager::class),
+            AuditLog::class => autowire(PdoAuditLog::class),
 
             ProductRepository::class => autowire(PdoProductRepository::class),
             PromotionRepository::class => autowire(PdoPromotionRepository::class),
